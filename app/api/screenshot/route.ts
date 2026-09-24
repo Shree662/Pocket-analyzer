@@ -19,9 +19,9 @@ export async function POST(req: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     
-    // Updated active model
+    // Updated to active Google model
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.6-flash',
       generationConfig: { responseMimeType: 'application/json' },
     });
 
@@ -31,7 +31,7 @@ Evaluate the 1M candle action and return ONLY strict JSON:
 {
   "asset": "EUR/USD OTC",
   "isOTC": true,
-  "detectedTime": "07:08 PM",
+  "detectedTime": "07:13 PM",
   "detectedTimezone": "Asia/Kolkata",
   "timeframe": "1M",
   "currentPrice": 1.18200,
