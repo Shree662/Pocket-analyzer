@@ -12,26 +12,26 @@ interface Candle {
 }
 
 interface AnalysisOutput {
-  asset: string;
-  signal: 'CALL' | 'PUT' | 'NO_TRADE';
-  setupScore: number;
-  trend: string;
-  momentum: string;
-  support: number;
-  resistance: number;
-  entry: string;
-  expiryGuidance: string;
-  confirmations: string[];
-  riskFlags: string[];
-  reason: string;
+  asset?: string;
+  signal?: 'CALL' | 'PUT' | 'NO_TRADE';
+  setupScore?: number;
+  trend?: string;
+  momentum?: string;
+  support?: number | string;
+  resistance?: number | string;
+  entry?: string;
+  expiryGuidance?: string;
+  confirmations?: string[];
+  riskFlags?: string[];
+  reason?: string;
   waitFor?: string;
-  timestamp: number;
+  timestamp?: number;
 }
 
 // --- INDICATOR HELPERS ---
 function calculateEMA(data: number[], period: number): number[] {
   const k = 2 / (period + 1);
-  let ema = data[0];
+  let ema = data[0] || 0;
   const result: number[] = [ema];
   for (let i = 1; i < data.length; i++) {
     ema = data[i] * k + ema * (1 - k);
@@ -56,20 +56,20 @@ function calculateRSI(closes: number[], period: number = 14): number {
 // --- ACCURATE SIGNAL ENGINE ---
 function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
   const closes = candles.map(c => c.close);
-  const current = candles[candles.length - 1];
+  const current = candles[candles.length - 1] || { close: 1.085, open: 1.085, high: 1.085, low: 1.085 };
   const ema9 = calculateEMA(closes, 9);
   const ema21 = calculateEMA(closes, 21);
   const ema50 = calculateEMA(closes, 50);
   const rsi = calculateRSI(closes, 14);
 
-  const e9 = ema9[ema9.length - 1];
-  const e21 = ema21[ema21.length - 1];
-  const e50 = ema50[ema50.length - 1];
+  const e9 = ema9[ema9.length - 1] || 0;
+  const e21 = ema21[ema21.length - 1] || 0;
+  const e50 = ema50[ema50.length - 1] || 0;
 
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
-  const resistance = Math.max(...highs.slice(-30));
-  const support = Math.min(...lows.slice(-30));
+  const resistance = highs.length ? Math.max(...highs.slice(-30)) : current.close + 0.0005;
+  const support = lows.length ? Math.min(...lows.slice(-30)) : current.close - 0.0005;
 
   let bullishScore = 0;
   let bearishScore = 0;
@@ -79,7 +79,6 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
   const isBullishTrend = e9 > e21 && e21 > e50;
   const isBearishTrend = e9 < e21 && e21 < e50;
 
-  // 1. Trend Evaluation
   if (isBullishTrend) {
     bullishScore += 30;
     confirmations.push('Aligned Bullish EMAs (EMA 9 > 21 > 50)');
@@ -90,7 +89,6 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
     riskFlags.push('EMAs tangled (Sideways range market)');
   }
 
-  // 2. Support / Resistance Logic (Mutually Exclusive)
   const range = resistance - support;
   const posInRange = range > 0 ? (current.close - support) / range : 0.5;
 
@@ -104,7 +102,6 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
     riskFlags.push('Price floating mid-range between key levels');
   }
 
-  // 3. Momentum RSI Logic
   if (rsi >= 54 && rsi <= 68) {
     bullishScore += 25;
     confirmations.push(`RSI Bullish Expansion (${rsi.toFixed(1)})`);
@@ -112,16 +109,15 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
     bearishScore += 25;
     confirmations.push(`RSI Bearish Expansion (${rsi.toFixed(1)})`);
   } else if (rsi > 70) {
-    riskFlags.push(`RSI Overbought Warning (${rsi.toFixed(1)})`);
+    riskFlags.push(`RSI Overbought (${rsi.toFixed(1)})`);
     bullishScore -= 10;
   } else if (rsi < 30) {
-    riskFlags.push(`RSI Oversold Warning (${rsi.toFixed(1)})`);
+    riskFlags.push(`RSI Oversold (${rsi.toFixed(1)})`);
     bearishScore -= 10;
   } else {
     riskFlags.push(`RSI Neutral Zone (${rsi.toFixed(1)})`);
   }
 
-  // 4. Candle Action
   const candleSize = Math.abs(current.close - current.open);
   if (candleSize > 0.00008) {
     if (current.close > current.open) bullishScore += 10;
@@ -161,6 +157,32 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
   };
 }
 
+// Client-side Image Compression (Prevents Vercel 413 & Memory Crash)
+function compressImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 900;
+        const scale = MAX_WIDTH / Math.max(img.width, MAX_WIDTH);
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject('Canvas error');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        resolve(dataUrl.split(',')[1]);
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function App() {
   const [asset, setAsset] = useState('EUR/USD');
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -170,6 +192,7 @@ export default function App() {
   const [killSwitch, setKillSwitch] = useState(false);
   const [activeTab, setActiveTab] = useState<'TERMINAL' | 'SCREENSHOT'>('TERMINAL');
   const [uploading, setUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Initialize Price Simulation
   useEffect(() => {
@@ -218,36 +241,62 @@ export default function App() {
     return () => clearInterval(timer);
   }, [candles.length, asset, killSwitch]);
 
-  // Screenshot Upload Handler
+  // Screenshot Upload Handler with Compression & Safe State
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      try {
-        const base64 = (reader.result as string).split(',')[1];
-        const res = await fetch('/api/screenshot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, mimeType: file.type }),
-        });
-        const data = await res.json();
-        if (data && !data.error) {
-          setAnalysis(data);
-          setActiveTab('TERMINAL');
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setUploading(false);
+    setErrorMessage(null);
+
+    try {
+      const compressedBase64 = await compressImage(file);
+      const res = await fetch('/api/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: compressedBase64, mimeType: 'image/jpeg' }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
       }
-    };
-    reader.readAsDataURL(file);
+
+      const data = await res.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      // Safe normalization
+      const safeData: AnalysisOutput = {
+        asset: data.asset || asset,
+        signal: (data.signal === 'CALL' || data.signal === 'PUT') ? data.signal : 'NO_TRADE',
+        setupScore: Number(data.setupScore) || 60,
+        trend: data.trend || 'Neutral',
+        momentum: data.momentum || 'Normal',
+        support: Number(data.support) || 0,
+        resistance: Number(data.resistance) || 0,
+        entry: data.entry || 'Wait for confirmation',
+        expiryGuidance: data.expiryGuidance || '1–2 minutes',
+        confirmations: Array.isArray(data.confirmations) ? data.confirmations : [],
+        riskFlags: Array.isArray(data.riskFlags) ? data.riskFlags : [],
+        reason: data.reason || 'Visual chart pattern analyzed.',
+        waitFor: data.waitFor,
+        timestamp: Date.now(),
+      };
+
+      setAnalysis(safeData);
+      setActiveTab('TERMINAL');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Screenshot analysis failed. Check API key.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const maxStake = (balance * (riskPercent / 100)).toFixed(2);
   const lastPrice = candles.length > 0 ? candles[candles.length - 1].close : 0;
+  const currentSignal = analysis?.signal || 'NO_TRADE';
+  const scoreVal = Number(analysis?.setupScore) || 50;
+  const suppVal = Number(analysis?.support || 0);
 
   return (
     <main className="min-h-screen bg-[#070B12] text-slate-100 flex justify-center p-3 font-sans">
@@ -261,7 +310,7 @@ export default function App() {
           </div>
           <div className="flex bg-slate-900 border border-slate-800 p-0.5 rounded-lg text-[10px]">
             <button
-              onClick={() => setActiveTab('TERMINAL')}
+              onClick={() => { setActiveTab('TERMINAL'); setErrorMessage(null); }}
               className={`px-2.5 py-1 rounded font-bold transition ${activeTab === 'TERMINAL' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
             >
               TERMINAL
@@ -279,12 +328,18 @@ export default function App() {
           <div className="p-6 rounded-xl border border-slate-800 bg-slate-900 text-center space-y-3">
             <div className="text-sm font-bold text-white">Pocket Option Screenshot Analysis</div>
             <p className="text-xs text-slate-400">
-              Pocket Option chart ka screenshot upload karein. Gemini AI visual candles, EMA aur S/R check karke CALL/PUT/NO TRADE dega.
+              Pocket Option chart ka screenshot upload karein. Gemini AI visual candles aur levels ko analyze karke CALL/PUT/NO TRADE nikalega.
             </p>
             <label className="inline-block px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer">
               {uploading ? 'Analyzing Chart...' : 'Upload Chart Screenshot'}
               <input type="file" accept="image/*" className="hidden" onChange={handleScreenshot} disabled={uploading} />
             </label>
+
+            {errorMessage && (
+              <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 text-xs text-left">
+                <strong>Error: </strong> {errorMessage}
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -313,23 +368,23 @@ export default function App() {
             ) : analysis && (
               <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 space-y-2 shadow-lg">
                 <div className={`p-3 rounded-lg flex items-center justify-between border ${
-                  analysis.signal === 'CALL' ? 'bg-emerald-950/40 border-emerald-500 text-emerald-400' :
-                  analysis.signal === 'PUT' ? 'bg-rose-950/40 border-rose-500 text-rose-400' :
+                  currentSignal === 'CALL' ? 'bg-emerald-950/40 border-emerald-500 text-emerald-400' :
+                  currentSignal === 'PUT' ? 'bg-rose-950/40 border-rose-500 text-rose-400' :
                   'bg-slate-800/40 border-slate-700 text-slate-300'
                 }`}>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">{analysis.signal === 'CALL' ? '🟢' : analysis.signal === 'PUT' ? '🔴' : '⚪'}</span>
+                    <span className="text-2xl">{currentSignal === 'CALL' ? '🟢' : currentSignal === 'PUT' ? '🔴' : '⚪'}</span>
                     <div>
-                      <div className="text-lg font-black">{analysis.signal.replace('_', ' ')}</div>
-                      <div className="text-[10px] text-slate-400">{analysis.entry}</div>
+                      <div className="text-lg font-black">{String(currentSignal).replace('_', ' ')}</div>
+                      <div className="text-[10px] text-slate-400">{analysis.entry || 'After candle close'}</div>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-[9px] text-slate-400">SETUP SCORE</div>
                     <div className={`text-base font-black ${
-                      analysis.setupScore >= 75 ? 'text-emerald-400' : 'text-slate-300'
+                      scoreVal >= 75 ? 'text-emerald-400' : 'text-slate-300'
                     }`}>
-                      {analysis.setupScore}/100
+                      {scoreVal}/100
                     </div>
                   </div>
                 </div>
@@ -337,21 +392,21 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <div className="p-2 rounded bg-slate-950 border border-slate-800">
                     <span className="text-[9px] text-slate-500 block">TREND / MOMENTUM</span>
-                    <span className="font-bold text-slate-200">{analysis.trend} • {analysis.momentum}</span>
+                    <span className="font-bold text-slate-200">{analysis.trend || 'Neutral'} • {analysis.momentum || 'Normal'}</span>
                   </div>
                   <div className="p-2 rounded bg-slate-950 border border-slate-800">
                     <span className="text-[9px] text-slate-500 block">EXPIRY GUIDANCE</span>
-                    <span className="font-bold text-slate-200">{analysis.expiryGuidance}</span>
+                    <span className="font-bold text-slate-200">{analysis.expiryGuidance || '1–2 minutes'}</span>
                   </div>
                 </div>
 
-                {analysis.confirmations.length > 0 && (
+                {Array.isArray(analysis.confirmations) && analysis.confirmations.length > 0 && (
                   <div className="text-[10px] text-emerald-400 bg-emerald-950/20 p-2 rounded border border-emerald-900/30">
                     ✓ {analysis.confirmations.join(' | ')}
                   </div>
                 )}
 
-                {analysis.riskFlags.length > 0 && (
+                {Array.isArray(analysis.riskFlags) && analysis.riskFlags.length > 0 && (
                   <div className="text-[10px] text-amber-400 bg-amber-950/20 p-2 rounded border border-amber-900/30">
                     ⚠ {analysis.riskFlags.join(' | ')}
                   </div>
@@ -371,7 +426,7 @@ export default function App() {
             <div className="rounded-xl border border-slate-800 bg-[#0A0E17] p-3">
               <div className="text-[10px] font-bold text-slate-400 mb-2 flex justify-between">
                 <span>RECENT CANDLE STRUCTURE (1M)</span>
-                <span className="text-emerald-400">SUPP: {analysis?.support.toFixed(5)}</span>
+                <span className="text-emerald-400">SUPP: {suppVal > 0 ? suppVal.toFixed(5) : 'Calculating...'}</span>
               </div>
               <div className="flex items-end gap-1 h-28 w-full border-b border-slate-800 pb-1">
                 {candles.slice(-28).map((c, i) => {
@@ -389,7 +444,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Risk Calculator & Kill Switch */}
+            {/* Risk Management */}
             <div className="p-3 rounded-xl border border-slate-800 bg-slate-900 text-xs space-y-2">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-200">RISK MANAGEMENT</span>
