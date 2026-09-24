@@ -14,24 +14,14 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({
-        asset: 'AUD/CHF OTC',
-        isOTC: true,
-        detectedTime: '06:51 PM',
-        detectedTimezone: 'Asia/Kolkata',
-        timeframe: '1M',
-        currentPrice: 0.53661,
-        signal: 'NO_TRADE',
-        setupScore: 50,
-        trend: 'Neutral',
-        momentum: 'Normal',
-        reason: 'GEMINI_API_KEY is not configured in Vercel Settings. Please add your key in Environment Variables.',
-      });
+      return NextResponse.json({ error: 'GEMINI_API_KEY missing in Vercel' }, { status: 500 });
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // Updated active model
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       generationConfig: { responseMimeType: 'application/json' },
     });
 
@@ -41,8 +31,8 @@ Evaluate the 1M candle action and return ONLY strict JSON:
 {
   "asset": "EUR/USD OTC",
   "isOTC": true,
-  "detectedTime": "06:52 PM",
-  "detectedTimezone": "UNKNOWN",
+  "detectedTime": "07:08 PM",
+  "detectedTimezone": "Asia/Kolkata",
   "timeframe": "1M",
   "currentPrice": 1.18200,
   "signal": "CALL" or "PUT" or "NO_TRADE",
@@ -74,7 +64,7 @@ Evaluate the 1M candle action and return ONLY strict JSON:
     return NextResponse.json(data);
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || 'Analysis processing timed out' },
+      { error: err.message || 'Analysis processing failed' },
       { status: 500 }
     );
   }
