@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 
-// --- TYPES ---
 interface Candle {
   time: number;
   open: number;
@@ -28,7 +27,6 @@ interface AnalysisOutput {
   timestamp?: number;
 }
 
-// --- INDICATOR HELPERS ---
 function calculateEMA(data: number[], period: number): number[] {
   const k = 2 / (period + 1);
   let ema = data[0] || 0;
@@ -53,7 +51,6 @@ function calculateRSI(closes: number[], period: number = 14): number {
   return 100 - (100 / (1 + rs));
 }
 
-// --- ACCURATE SIGNAL ENGINE ---
 function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
   const closes = candles.map(c => c.close);
   const current = candles[candles.length - 1] || { close: 1.085, open: 1.085, high: 1.085, low: 1.085 };
@@ -118,12 +115,6 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
     riskFlags.push(`RSI Neutral Zone (${rsi.toFixed(1)})`);
   }
 
-  const candleSize = Math.abs(current.close - current.open);
-  if (candleSize > 0.00008) {
-    if (current.close > current.open) bullishScore += 10;
-    else bearishScore += 10;
-  }
-
   const finalScore = Math.max(bullishScore, bearishScore);
   let signal: 'CALL' | 'PUT' | 'NO_TRADE' = 'NO_TRADE';
 
@@ -157,7 +148,6 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
   };
 }
 
-// Client-side Image Compression (Prevents Vercel 413 & Memory Crash)
 function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -165,20 +155,20 @@ function compressImage(file: File): Promise<string> {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 900;
-        const scale = MAX_WIDTH / Math.max(img.width, MAX_WIDTH);
+        const MAX_WIDTH = 800;
+        const scale = Math.min(1, MAX_WIDTH / img.width);
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return reject('Canvas error');
+        if (!ctx) return reject(new Error('Canvas error'));
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
         resolve(dataUrl.split(',')[1]);
       };
-      img.onerror = reject;
+      img.onerror = () => reject(new Error('Image format unreadable'));
       img.src = e.target?.result as string;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(new Error('File reader failed'));
     reader.readAsDataURL(file);
   });
 }
@@ -194,7 +184,6 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Initialize Price Simulation
   useEffect(() => {
     let price = asset === 'USD/JPY' ? 152.50 : 1.0850;
     const initialCandles: Candle[] = [];
@@ -212,7 +201,6 @@ export default function App() {
     setCandles(initialCandles);
   }, [asset]);
 
-  // Market Engine Tick Loop
   useEffect(() => {
     if (candles.length < 30 || killSwitch) return;
     setAnalysis(runAnalysis(candles, asset));
@@ -241,7 +229,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, [candles.length, asset, killSwitch]);
 
-  // Screenshot Upload Handler with Compression & Safe State
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -256,39 +243,33 @@ export default function App() {
         body: JSON.stringify({ imageBase64: compressedBase64, mimeType: 'image/jpeg' }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
-      }
-
       const data = await res.json();
-      if (data.error) {
-        throw new Error(data.error);
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Server error occurred');
       }
 
-      // Safe normalization
-      const safeData: AnalysisOutput = {
-        asset: data.asset || asset,
-        signal: (data.signal === 'CALL' || data.signal === 'PUT') ? data.signal : 'NO_TRADE',
+      setAnalysis({
+        asset: String(data.asset || asset),
+        signal: data.signal === 'CALL' || data.signal === 'PUT' ? data.signal : 'NO_TRADE',
         setupScore: Number(data.setupScore) || 60,
-        trend: data.trend || 'Neutral',
-        momentum: data.momentum || 'Normal',
+        trend: String(data.trend || 'Neutral'),
+        momentum: String(data.momentum || 'Normal'),
         support: Number(data.support) || 0,
         resistance: Number(data.resistance) || 0,
-        entry: data.entry || 'Wait for confirmation',
-        expiryGuidance: data.expiryGuidance || '1–2 minutes',
+        entry: String(data.entry || 'Wait for confirmation'),
+        expiryGuidance: String(data.expiryGuidance || '1–2 minutes'),
         confirmations: Array.isArray(data.confirmations) ? data.confirmations : [],
         riskFlags: Array.isArray(data.riskFlags) ? data.riskFlags : [],
-        reason: data.reason || 'Visual chart pattern analyzed.',
-        waitFor: data.waitFor,
+        reason: String(data.reason || 'Screenshot analyzed.'),
+        waitFor: data.waitFor ? String(data.waitFor) : undefined,
         timestamp: Date.now(),
-      };
-
-      setAnalysis(safeData);
+      });
       setActiveTab('TERMINAL');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Screenshot analysis failed. Check API key.');
+      setErrorMessage(err.message || 'Analysis failed. API key aur screenshot check karein.');
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -296,13 +277,11 @@ export default function App() {
   const lastPrice = candles.length > 0 ? candles[candles.length - 1].close : 0;
   const currentSignal = analysis?.signal || 'NO_TRADE';
   const scoreVal = Number(analysis?.setupScore) || 50;
-  const suppVal = Number(analysis?.support || 0);
+  const suppVal = Number(analysis?.support) || 0;
 
   return (
     <main className="min-h-screen bg-[#070B12] text-slate-100 flex justify-center p-3 font-sans">
       <div className="w-full max-w-md space-y-3 pb-8">
-        
-        {/* Header */}
         <header className="flex justify-between items-center border-b border-slate-800 pb-2">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
@@ -328,7 +307,7 @@ export default function App() {
           <div className="p-6 rounded-xl border border-slate-800 bg-slate-900 text-center space-y-3">
             <div className="text-sm font-bold text-white">Pocket Option Screenshot Analysis</div>
             <p className="text-xs text-slate-400">
-              Pocket Option chart ka screenshot upload karein. Gemini AI visual candles aur levels ko analyze karke CALL/PUT/NO TRADE nikalega.
+              Pocket Option chart screenshot select karein. Gemini AI automatically read karke CALL / PUT / NO TRADE provide karega.
             </p>
             <label className="inline-block px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer">
               {uploading ? 'Analyzing Chart...' : 'Upload Chart Screenshot'}
@@ -337,13 +316,12 @@ export default function App() {
 
             {errorMessage && (
               <div className="p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 text-xs text-left">
-                <strong>Error: </strong> {errorMessage}
+                <strong>Notice: </strong> {errorMessage}
               </div>
             )}
           </div>
         ) : (
           <>
-            {/* Asset Selector & Price */}
             <div className="flex gap-2 items-center">
               <select
                 value={asset}
@@ -360,7 +338,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Signal Card */}
             {killSwitch ? (
               <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800 text-center text-rose-400 font-bold text-xs">
                 KILL SWITCH ACTIVE: Signal Engine Disabled.
@@ -422,7 +399,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Candle Structure Bar */}
             <div className="rounded-xl border border-slate-800 bg-[#0A0E17] p-3">
               <div className="text-[10px] font-bold text-slate-400 mb-2 flex justify-between">
                 <span>RECENT CANDLE STRUCTURE (1M)</span>
@@ -444,7 +420,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Risk Management */}
             <div className="p-3 rounded-xl border border-slate-800 bg-slate-900 text-xs space-y-2">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-200">RISK MANAGEMENT</span>
