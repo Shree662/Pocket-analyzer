@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,7 +18,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
     const prompt = `Analyze this Pocket Option chart screenshot for 1M binary setup. 
 Return ONLY JSON:
 {
@@ -38,20 +40,17 @@ Return ONLY JSON:
   "reason": "Clear breakout and rejection."
 }`;
 
-    const res = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: mimeType || 'image/png', data: imageBase64 } },
-          ],
+    const res = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: mimeType || 'image/png',
+          data: imageBase64,
         },
-      ],
-    });
+      },
+    ]);
 
-    const cleaned = (res.text || '{}').replace(/```json/g, '').replace(/```/g, '').trim();
+    const cleaned = (res.response.text() || '{}').replace(/```json/g, '').replace(/```/g, '').trim();
     const data = JSON.parse(cleaned);
     data.dataSource = 'SCREENSHOT_DATA';
     return NextResponse.json(data);
