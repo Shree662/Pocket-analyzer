@@ -8,46 +8,55 @@ export async function POST(req: NextRequest) {
     const { imageBase64, mimeType } = await req.json();
 
     if (!imageBase64) {
-      return NextResponse.json({ error: 'Koi image upload nahi mili.' }, { status: 400 });
+      return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({
         signal: 'NO_TRADE',
-        setupScore: 50,
+        setupScore: 0,
         trend: 'Neutral',
         momentum: 'Normal',
         support: 0,
         resistance: 0,
         entry: 'API Key Missing',
-        expiryGuidance: 'Wait for confirmation',
+        expiryGuidance: 'Wait',
         confirmations: [],
-        riskFlags: ['Vercel environment mein GEMINI_API_KEY set nahi hai'],
-        reason: 'Server par GEMINI_API_KEY missing hai. Vercel Settings mein jaakar key check karein.',
+        riskFlags: ['Vercel environment me GEMINI_API_KEY missing hai'],
+        reason: 'Server environment missing Gemini API key.',
       });
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ 
+    const model = genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
-      generationConfig: { responseMimeType: "application/json" }
+      generationConfig: { responseMimeType: 'application/json' },
     });
 
-    const prompt = `Analyze this trading chart screenshot. Provide a strict market analysis in pure JSON format:
+    const prompt = `Inspect this Pocket Option chart screenshot with strict data truthfulness.
+Analyze visible labels, asset name, OTC label, current tick price, visible time/timezone, and candlestick action.
+
+Return ONLY JSON:
 {
-  "asset": "DETECTED_PAIR_OR_EUR_USD",
-  "signal": "CALL" or "PUT" or "NO_TRADE",
-  "setupScore": 75,
-  "trend": "Bullish" or "Bearish" or "Neutral/Choppy",
-  "momentum": "Strong Bullish" or "Moderate Bullish" or "Strong Bearish" or "Moderate Bearish" or "Conflicted",
-  "support": 1.0820,
-  "resistance": 1.0860,
+  "asset": "EUR/USD",
+  "isOTC": true,
+  "detectedTime": "02:06 PM",
+  "detectedTimezone": "UNKNOWN",
+  "timeframe": "1M",
+  "currentPrice": 1.08427,
+  "signal": "CALL" | "PUT" | "NO_TRADE",
+  "setupScore": 82,
+  "trend": "Bullish" | "Bearish" | "Neutral/Choppy",
+  "momentum": "Strong Bullish" | "Strong Bearish" | "Neutral",
+  "support": 1.08390,
+  "resistance": 1.08510,
   "entry": "After current candle close",
   "expiryGuidance": "1–2 minutes",
-  "confirmations": ["Support bounce", "Bullish rejection"],
-  "riskFlags": ["Overbought RSI"],
-  "reason": "Clear market direction visible"
+  "confirmations": ["Support bounce", "Bullish rejection wick"],
+  "riskFlags": ["Approaching resistance band"],
+  "reason": "Clear breakout with momentum alignment",
+  "waitFor": "Wait for candle to close green"
 }`;
 
     const res = await model.generateContent([
@@ -60,34 +69,17 @@ export async function POST(req: NextRequest) {
       },
     ]);
 
-    const rawText = res.response.text() || '{}';
+    const raw = res.response.text() || '{}';
     let data;
     try {
-      data = JSON.parse(rawText);
+      data = JSON.parse(raw);
     } catch {
-      const match = rawText.match(/\{[\s\S]*\}/);
+      const match = raw.match(/\{[\s\S]*\}/);
       data = match ? JSON.parse(match[0]) : {};
     }
 
-    return NextResponse.json({
-      asset: data.asset || 'CHART_SCREENSHOT',
-      signal: data.signal === 'CALL' || data.signal === 'PUT' ? data.signal : 'NO_TRADE',
-      setupScore: Number(data.setupScore) || 60,
-      trend: data.trend || 'Neutral',
-      momentum: data.momentum || 'Normal',
-      support: Number(data.support) || 0,
-      resistance: Number(data.resistance) || 0,
-      entry: data.entry || 'Wait for candle close',
-      expiryGuidance: data.expiryGuidance || '1–2 minutes',
-      confirmations: Array.isArray(data.confirmations) ? data.confirmations : [],
-      riskFlags: Array.isArray(data.riskFlags) ? data.riskFlags : [],
-      reason: data.reason || 'Screenshot analyzed successfully.',
-      waitFor: data.signal === 'NO_TRADE' ? 'Confirmation breakout' : undefined,
-    });
+    return NextResponse.json(data);
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || 'Analysis processing failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || 'Analysis failed' }, { status: 500 });
   }
 }
