@@ -1,20 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickSeries } from 'lightweight-charts';
 
 // --- ALL POPULAR POCKET OPTION PAIRS ---
 const ALL_PAIRS = [
-  { symbol: 'EUR/USD', type: 'FOREX', defaultPrice: 1.08520, digits: 5 },
-  { symbol: 'GBP/USD', type: 'FOREX', defaultPrice: 1.29410, digits: 5 },
-  { symbol: 'USD/JPY', type: 'FOREX', defaultPrice: 153.850, digits: 3 },
-  { symbol: 'AUD/USD', type: 'FOREX', defaultPrice: 0.65830, digits: 5 },
-  { symbol: 'USD/CAD', type: 'FOREX', defaultPrice: 1.38420, digits: 5 },
-  { symbol: 'AUD/CHF', type: 'FOREX / OTC', defaultPrice: 0.53660, digits: 5 },
-  { symbol: 'EUR/GBP', type: 'FOREX', defaultPrice: 0.83850, digits: 5 },
-  { symbol: 'EUR/JPY', type: 'FOREX', defaultPrice: 166.900, digits: 3 },
-  { symbol: 'GBP/JPY', type: 'FOREX', defaultPrice: 199.100, digits: 3 },
-  { symbol: 'NZD/USD', type: 'FOREX', defaultPrice: 0.59210, digits: 5 },
+  { symbol: 'AUD/CHF', type: 'OTC', defaultPrice: 0.53660, digits: 5 },
+  { symbol: 'EUR/USD', type: 'STANDARD', defaultPrice: 1.08520, digits: 5 },
+  { symbol: 'GBP/USD', type: 'STANDARD', defaultPrice: 1.29410, digits: 5 },
+  { symbol: 'USD/JPY', type: 'STANDARD', defaultPrice: 153.850, digits: 3 },
+  { symbol: 'AUD/USD', type: 'STANDARD', defaultPrice: 0.65830, digits: 5 },
+  { symbol: 'USD/CAD', type: 'STANDARD', defaultPrice: 1.38420, digits: 5 },
+  { symbol: 'EUR/GBP', type: 'STANDARD', defaultPrice: 0.83850, digits: 5 },
+  { symbol: 'EUR/JPY', type: 'STANDARD', defaultPrice: 166.900, digits: 3 },
+  { symbol: 'GBP/JPY', type: 'STANDARD', defaultPrice: 199.100, digits: 3 },
+  { symbol: 'NZD/USD', type: 'STANDARD', defaultPrice: 0.59210, digits: 5 },
   { symbol: 'BTC/USD', type: 'CRYPTO', defaultPrice: 67200.00, digits: 2 },
   { symbol: 'ETH/USD', type: 'CRYPTO', defaultPrice: 2540.00, digits: 2 },
 ];
@@ -68,7 +67,7 @@ function calculateRSI(closes: number[], period: number = 14): number {
 }
 
 function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
-  if (candles.length < 25) {
+  if (candles.length < 20) {
     return {
       asset,
       signal: 'NO_TRADE',
@@ -80,8 +79,8 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
       entry: 'Accumulating Candles',
       expiryGuidance: 'Wait',
       confirmations: [],
-      riskFlags: ['Insufficient candle history'],
-      reason: 'Building live candles for multi-confirmation.',
+      riskFlags: ['Live history accumulating'],
+      reason: 'Building candle structure for analysis.',
       timestamp: Date.now(),
     };
   }
@@ -99,8 +98,8 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
 
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);
-  const resistance = Math.max(...highs.slice(-30));
-  const support = Math.min(...lows.slice(-30));
+  const resistance = Math.max(...highs.slice(-25));
+  const support = Math.min(...lows.slice(-25));
 
   let bull = 0;
   let bear = 0;
@@ -112,10 +111,10 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
 
   if (isBull) {
     bull += 35;
-    confirmations.push('EMA Stack Aligned Bullish (9 > 21 > 50)');
+    confirmations.push('EMA Stack Aligned Bullish (EMA 9 > 21 > 50)');
   } else if (isBear) {
     bear += 35;
-    confirmations.push('EMA Stack Aligned Bearish (9 < 21 < 50)');
+    confirmations.push('EMA Stack Aligned Bearish (EMA 9 < 21 < 50)');
   } else {
     riskFlags.push('EMA ribbon tangled (Market consolidation)');
   }
@@ -125,20 +124,20 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
 
   if (pos <= 0.22 && current.close >= current.open) {
     bull += 30;
-    confirmations.push(`Clean bounce from Support floor (${support.toFixed(5)})`);
+    confirmations.push(`Support bounce floor (${support.toFixed(5)})`);
   } else if (pos >= 0.78 && current.close <= current.open) {
     bear += 30;
-    confirmations.push(`Strong rejection from Resistance ceiling (${resistance.toFixed(5)})`);
+    confirmations.push(`Resistance rejection ceiling (${resistance.toFixed(5)})`);
   } else {
     riskFlags.push('Price oscillating between support and resistance');
   }
 
   if (rsi >= 54 && rsi <= 68) {
     bull += 25;
-    confirmations.push(`RSI Bullish Expansion (${rsi.toFixed(1)})`);
+    confirmations.push(`RSI Bullish Momentum (${rsi.toFixed(1)})`);
   } else if (rsi <= 46 && rsi >= 32) {
     bear += 25;
-    confirmations.push(`RSI Bearish Expansion (${rsi.toFixed(1)})`);
+    confirmations.push(`RSI Bearish Momentum (${rsi.toFixed(1)})`);
   } else if (rsi > 70) {
     riskFlags.push(`RSI Overbought territory (${rsi.toFixed(1)})`);
     bull -= 15;
@@ -171,13 +170,13 @@ function runAnalysis(candles: Candle[], asset: string): AnalysisOutput {
       : signal === 'PUT'
       ? 'Confluence of descending EMA stack, resistance rejection and downward momentum.'
       : `Setup score (${score}/100) below required 75 threshold. Market is consolidative.`,
-    waitFor: signal === 'NO_TRADE' ? 'Clear breakout with candle body closing outside range.' : undefined,
+    waitFor: signal === 'NO_TRADE' ? 'Clean breakout with candle body closing outside range.' : undefined,
     timestamp: Date.now(),
   };
 }
 
 export default function PocketTerminal() {
-  const [selectedPair, setSelectedPair] = useState(ALL_PAIRS[5]); // Default AUD/CHF
+  const [selectedPair, setSelectedPair] = useState(ALL_PAIRS[0]); // Default AUD/CHF
   const [candles, setCandles] = useState<Candle[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisOutput | null>(null);
   const [balance, setBalance] = useState(100);
@@ -185,10 +184,7 @@ export default function PocketTerminal() {
   const [killSwitch, setKillSwitch] = useState(false);
   const [activeTab, setActiveTab] = useState<'TERMINAL' | 'SCREENSHOT'>('TERMINAL');
   const [timerSec, setTimerSec] = useState(60);
-
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Expiration countdown
   useEffect(() => {
@@ -199,62 +195,13 @@ export default function PocketTerminal() {
     return () => clearInterval(t);
   }, []);
 
-  // Initialize Lightweight Professional Trading Chart
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 380,
-      layout: {
-        background: { color: '#0A0F1D' },
-        textColor: '#7E8B9F',
-      },
-      grid: {
-        vertLines: { color: '#161F33' },
-        horzLines: { color: '#161F33' },
-      },
-      timeScale: {
-        borderColor: '#1F2C46',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      rightPriceScale: {
-        borderColor: '#1F2C46',
-      },
-    });
-
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#10B981',
-      downColor: '#EF4444',
-      borderVisible: false,
-      wickUpColor: '#10B981',
-      wickDownColor: '#EF4444',
-    });
-
-    chartInstanceRef.current = chart;
-    seriesRef.current = series;
-
-    const handleResize = () => {
-      if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-      }
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, []);
-
-  // Build Genuine Historical Candlestick Stream
+  // Build Candles & Live Tick Formation
   useEffect(() => {
     let price = selectedPair.defaultPrice;
     const history: Candle[] = [];
     const now = Math.floor(Date.now() / 60) * 60;
 
-    for (let i = 45; i >= 0; i--) {
+    for (let i = 28; i >= 0; i--) {
       const open = price;
       const move = (Math.random() - 0.495) * (selectedPair.digits === 3 ? 0.04 : 0.00035);
       const close = open + move;
@@ -265,13 +212,8 @@ export default function PocketTerminal() {
     }
 
     setCandles(history);
-    if (seriesRef.current) {
-      seriesRef.current.setData(history.map(c => ({ time: c.time as any, open: c.open, high: c.high, low: c.low, close: c.close })));
-      chartInstanceRef.current?.timeScale().fitContent();
-    }
     setAnalysis(runAnalysis(history, selectedPair.symbol));
 
-    // Live Tick-by-Tick Forming Candle (Pocket Option Speed)
     const tickInterval = setInterval(() => {
       setCandles(prev => {
         if (prev.length === 0) return prev;
@@ -289,13 +231,6 @@ export default function PocketTerminal() {
             close: newClose,
           };
           updated = [...prev.slice(0, -1), updatedCandle];
-          seriesRef.current?.update({
-            time: updatedCandle.time as any,
-            open: updatedCandle.open,
-            high: updatedCandle.high,
-            low: updatedCandle.low,
-            close: updatedCandle.close,
-          });
         } else {
           const newCandle: Candle = {
             time: currentTime,
@@ -304,14 +239,7 @@ export default function PocketTerminal() {
             low: Math.min(last.close, newClose),
             close: newClose,
           };
-          updated = [...prev.slice(-44), newCandle];
-          seriesRef.current?.update({
-            time: newCandle.time as any,
-            open: newCandle.open,
-            high: newCandle.high,
-            low: newCandle.low,
-            close: newCandle.close,
-          });
+          updated = [...prev.slice(-27), newCandle];
         }
 
         if (!killSwitch) setAnalysis(runAnalysis(updated, selectedPair.symbol));
@@ -322,23 +250,29 @@ export default function PocketTerminal() {
     return () => clearInterval(tickInterval);
   }, [selectedPair, killSwitch]);
 
-  const lastCandle = candles[candles.length - 1] || { close: selectedPair.defaultPrice };
+  const lastCandle = candles[candles.length - 1] || { close: selectedPair.defaultPrice, open: selectedPair.defaultPrice };
   const currentPrice = lastCandle.close;
   const maxStake = (balance * (riskPercent / 100)).toFixed(2);
   const currentSignal = analysis?.signal || 'NO_TRADE';
   const scoreVal = Number(analysis?.setupScore) || 50;
 
+  // Chart Scaler Calculation
+  const visibleCandles = candles.slice(-24);
+  const minPrice = visibleCandles.length ? Math.min(...visibleCandles.map(c => c.low)) : 0;
+  const maxPrice = visibleCandles.length ? Math.max(...visibleCandles.map(c => c.high)) : 1;
+  const priceRange = Math.max(0.00001, maxPrice - minPrice);
+
   return (
     <main className="min-h-screen bg-[#070B14] text-slate-100 flex justify-center p-2.5 font-sans select-none">
       <div className="w-full max-w-md space-y-2.5 pb-8">
         
-        {/* Top Pocket Option Header Bar */}
+        {/* Top Header */}
         <header className="flex justify-between items-center bg-[#0C1220] p-2.5 rounded-xl border border-slate-800">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <div>
-              <h1 className="text-xs font-black tracking-wider text-white">POCKET OPTION AI TERMINAL</h1>
-              <div className="text-[9px] text-slate-400">GENUINE 1M TICK STREAM</div>
+              <h1 className="text-xs font-black tracking-wider text-white">POCKET OPTION TERMINAL</h1>
+              <div className="text-[9px] text-slate-400">1M LIVE TICK ANALYSIS</div>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -359,15 +293,16 @@ export default function PocketTerminal() {
 
         {activeTab === 'SCREENSHOT' ? (
           <div className="p-6 rounded-xl border border-slate-800 bg-[#0C1220] text-center space-y-3">
-            <div className="text-sm font-bold text-white">Analyze Pocket Option Chart Screenshot</div>
+            <div className="text-sm font-bold text-white">Pocket Option Screenshot Analysis</div>
             <p className="text-xs text-slate-400">
-              Pocket Option app ka exact screenshot upload karein. Gemini AI visual candles, OTC levels aur trend lines scan karke CALL / PUT / NO TRADE dega.
+              Pocket Option app ka screenshot upload karein. Gemini AI visual candles, OTC levels aur pattern scan karke CALL / PUT / NO TRADE dega.
             </p>
             <label className="inline-block px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer">
-              Upload Chart Screenshot
-              <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+              {uploading ? 'Analyzing Screenshot...' : 'Upload Chart Screenshot'}
+              <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
+                setUploading(true);
                 const reader = new FileReader();
                 reader.onloadend = async () => {
                   try {
@@ -384,6 +319,8 @@ export default function PocketTerminal() {
                     }
                   } catch (err) {
                     console.error(err);
+                  } finally {
+                    setUploading(false);
                   }
                 };
                 reader.readAsDataURL(file);
@@ -392,7 +329,7 @@ export default function PocketTerminal() {
           </div>
         ) : (
           <>
-            {/* Pair Selector Dropdown (All Pocket Option Pairs) */}
+            {/* Pair Selector */}
             <div className="flex gap-2">
               <select
                 value={selectedPair.symbol}
@@ -414,16 +351,87 @@ export default function PocketTerminal() {
               </div>
             </div>
 
-            {/* TradingView Powered Professional Candlestick Chart */}
-            <div className="rounded-2xl border border-slate-800 bg-[#0A0F1D] p-2 relative overflow-hidden shadow-2xl">
-              <div className="flex justify-between items-center text-[10px] font-semibold text-slate-400 mb-1 px-1">
-                <span className="text-slate-300 font-bold">{selectedPair.symbol} • 1M CANDLES</span>
-                <span className="text-amber-400 font-mono font-bold">⏱ 00:{timerSec < 10 ? `0${timerSec}` : timerSec}</span>
+            {/* Pocket Option Style Candlestick Chart Pane */}
+            <div className="rounded-2xl border border-slate-800 bg-[#0A0F1D] p-3 relative overflow-hidden shadow-2xl">
+              <div className="flex justify-between items-center text-[10px] font-semibold text-slate-400 mb-2 border-b border-slate-800/80 pb-1.5">
+                <span className="flex items-center gap-1">
+                  <span className="text-slate-200 font-bold">{selectedPair.symbol}</span> • 1M CANDLES
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-mono font-bold">⏱ 00:{timerSec < 10 ? `0${timerSec}` : timerSec}</span>
+                </div>
               </div>
-              <div ref={chartContainerRef} className="w-full h-[380px]" />
+
+              {/* Candlestick Canvas Container */}
+              <div className="relative h-64 w-full flex items-end justify-between gap-1 pt-4 pb-2 bg-[#070B14]/70 rounded-xl border border-slate-850">
+                {/* Horizontal Gridlines */}
+                <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-10">
+                  <div className="border-b border-slate-400 w-full" />
+                  <div className="border-b border-slate-400 w-full" />
+                  <div className="border-b border-slate-400 w-full" />
+                  <div className="border-b border-slate-400 w-full" />
+                </div>
+
+                {visibleCandles.map((c, i) => {
+                  const isLast = i === visibleCandles.length - 1;
+                  const isGreen = c.close >= c.open;
+                  const color = isGreen ? '#10B981' : '#EF4444';
+
+                  const highY = ((c.high - minPrice) / priceRange) * 100;
+                  const lowY = ((c.low - minPrice) / priceRange) * 100;
+                  const openY = ((c.open - minPrice) / priceRange) * 100;
+                  const closeY = ((c.close - minPrice) / priceRange) * 100;
+
+                  const bodyBottom = Math.min(openY, closeY);
+                  const bodyHeight = Math.max(3, Math.abs(closeY - openY));
+                  const wickHeight = Math.max(bodyHeight, highY - lowY);
+
+                  return (
+                    <div key={i} className="flex-1 relative h-full flex items-end justify-center">
+                      {/* Upper & Lower Wick */}
+                      <div
+                        style={{
+                          bottom: `${lowY}%`,
+                          height: `${wickHeight}%`,
+                          backgroundColor: color,
+                        }}
+                        className="absolute w-[2px] rounded-full z-0 opacity-80"
+                      />
+
+                      {/* Solid Body */}
+                      <div
+                        style={{
+                          bottom: `${bodyBottom}%`,
+                          height: `${bodyHeight}%`,
+                          backgroundColor: color,
+                        }}
+                        className={`w-full max-w-[9px] rounded-sm relative z-10 shadow-md ${isLast ? 'ring-2 ring-white/60 animate-pulse' : ''}`}
+                      />
+
+                      {/* Live Dotted Horizontal Price Tracker */}
+                      {isLast && (
+                        <div
+                          style={{ bottom: `${closeY}%` }}
+                          className="absolute left-0 w-96 border-b border-dashed border-sky-400 z-20 pointer-events-none opacity-80"
+                        >
+                          <span className="absolute right-0 -top-3 bg-sky-500 text-[8px] font-mono text-black font-bold px-1 rounded">
+                            {c.close.toFixed(selectedPair.digits)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-between text-[9px] text-slate-500 pt-1.5 border-t border-slate-800/60 font-mono">
+                <span>RES: {analysis?.resistance.toFixed(selectedPair.digits)}</span>
+                <span className="text-slate-400 font-bold">1M ACTIVE</span>
+                <span>SUPP: {analysis?.support.toFixed(selectedPair.digits)}</span>
+              </div>
             </div>
 
-            {/* AI Signal Analysis Card */}
+            {/* Signal Card */}
             {killSwitch ? (
               <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-800 text-center text-rose-400 font-bold text-xs">
                 KILL SWITCH ACTIVE: Signal Engine Suspended.
@@ -485,7 +493,7 @@ export default function PocketTerminal() {
               </div>
             )}
 
-            {/* Risk Management Panel */}
+            {/* Risk Management */}
             <div className="p-3 rounded-xl border border-slate-800 bg-[#0C1220] text-xs space-y-2">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-200">MANUAL RISK MANAGEMENT</span>
